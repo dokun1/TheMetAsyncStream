@@ -53,17 +53,28 @@ class TheMetStore: ObservableObject {
 
   func fetchObjects(for queryTerm: String) async throws {
     if let objectIDs = try await service.getObjectIDs(from: queryTerm) {  // 1
-      for (index, objectID) in objectIDs.objectIDs.enumerated()  // 2
-      where index < maxIndex {
-        if let object = try await service.getObject(from: objectID) {
-          await MainActor.run {
-            objects.append(object)
-          }
+      for try await object in getResponseStream(for: objectIDs) {
+        await MainActor.run {
+          objects.append(object)
         }
       }
       writeObjects()
       WidgetCenter.shared.reloadTimelines(ofKind: "TheMetWidget")
     }
+  }
+  
+  func getResponseStream(for objectIDs: ObjectIDs) -> AsyncStream<Object> {
+    let stream = AsyncStream<Object> { continuation in
+      for (index, objectID) in objectIDs.objectIDs.enumerated()
+        where index < maxIndex {
+        Task {
+          if let object = try await service.getObject(from: objectID) {
+            continuation.yield(object)
+          }
+        }
+      }
+    }
+    return stream
   }
 
   func writeObjects() {
